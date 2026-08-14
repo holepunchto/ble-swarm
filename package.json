@@ -1,0 +1,45 @@
+{
+  "name": "ble-swarm",
+  "version": "2.0.0",
+  "description": "Bluetooth LE hyperswarm transport",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "lib"
+  ],
+  "scripts": {
+    "test": "brittle-node test/all.js",
+    "lint": "prettier . --check && lunte"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/holepunchto/ble-swarm.git"
+  },
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@hyperswarm/secret-stream": "^6.9.1",
+    "b4a": "^1.8.1",
+    "bare-bluetooth": "0.3.0",
+    "bare-events": "^2.9.1",
+    "hypercore-crypto": "^3.7.0",
+    "ready-resource": "^1.2.0",
+    "safety-catch": "^1.0.3",
+    "streamx": "^2.28.0",
+    "which-runtime": "^1.4.0"
+  },
+  "devDependencies": {
+    "brittle": "^4.1.0",
+    "lunte": "^1.8.4",
+    "prettier": "^3.9.6",
+    "prettier-config-holepunch": "^2.0.0"
+  },
+  "imports": {
+    "#bluetooth": {
+      "android": "bare-bluetooth",
+      "darwin": "bare-bluetooth",
+      "ios": "bare-bluetooth",
+      "default": "./lib/unsupported.js"
+    }
+  },
+  "prettier": "prettier-config-holepunch"
+}

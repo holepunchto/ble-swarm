@@ -1,0 +1,23 @@
+name: Publish
+on:
+  push:
+    tags:
+      - v*
+permissions:
+  id-token: write
+  contents: write
+  packages: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: npm
+    name: Publish
+    steps:
+      - uses: holepunchto/actions/node-base@v1
+        with:
+          registry-url: https://npm.pkg.github.com
+          node-auth-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: holepunchto/actions/publish@v1
+        with:
+          node-auth-token: ${{ secrets.GITHUB_TOKEN }}
