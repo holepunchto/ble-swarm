@@ -1,7 +1,7 @@
 {
   "name": "ble-swarm",
   "version": "0.1.0",
-  "description": "Hyperswarm-shaped peer connectivity over Bluetooth LE \u2014 framed GATT streams with Noise on top",
+  "description": "Bluetooth LE hyperswarm transport",
   "main": "index.js",
   "files": [
     "index.js",

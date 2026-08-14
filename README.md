@@ -1,6 +1,6 @@
 # ble-swarm
 
-Hyperswarm-shaped swarm over Bluetooth LE. Nearby peers discover each other by
+Bluetooth LE hyperswarm transport. Nearby peers discover each other by
 advertising and scanning a topic-derived GATT service UUID, speak a framed byte
 stream over a single write+notify characteristic, and come out the other side
 as Noise-encrypted duplex streams — the same shape hyperswarm emits, so a BLE
