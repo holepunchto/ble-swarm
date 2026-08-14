@@ -5,7 +5,11 @@ const { Server, Service, Characteristic } = require('bare-bluetooth')
 const SERVICE_UUID = 'ce1af000-0000-1000-8000-00805f9b34fb'
 const DATA_UUID = 'ce1af001-0000-1000-8000-00805f9b34fb'
 
-const data = new Characteristic(DATA_UUID, { write: true, writeWithoutResponse: true, notify: true })
+const data = new Characteristic(DATA_UUID, {
+  write: true,
+  writeWithoutResponse: true,
+  notify: true
+})
 const server = new Server()
 
 let received = 0

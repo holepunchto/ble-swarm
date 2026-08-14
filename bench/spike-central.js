@@ -51,7 +51,7 @@ central
   })
   .on('error', (err) => console.error('central error:', err))
 
-function pump () {
+function pump() {
   // one echo in flight at a time — measures full round-trip; raw one-way rate is ~2x
   if (sent >= TOTAL) return
   sent++
@@ -60,15 +60,19 @@ function pump () {
   peripheral.write(dataChar, buf, withResponse)
 }
 
-function done () {
+function done() {
   const secs = (Date.now() - started) / 1000
   console.log(`DONE: ${TOTAL} round-trips, ${echoedBytes} bytes echoed in ${secs.toFixed(1)}s`)
-  console.log(`round-trip rate: ${(TOTAL / secs).toFixed(1)}/s, echo throughput: ${(echoedBytes / secs / 1024).toFixed(2)} KiB/s`)
+  console.log(
+    `round-trip rate: ${(TOTAL / secs).toFixed(1)}/s, echo throughput: ${(echoedBytes / secs / 1024).toFixed(2)} KiB/s`
+  )
   console.log(`lost: ${sent - echoed} (nonzero => this payload/mode combo drops writes)`)
   Bare.exit(0)
 }
 
 setTimeout(() => {
-  console.log(`TIMEOUT: sent=${sent} echoed=${echoed} — combo payload=${payloadSize} withResponse=${withResponse} unreliable`)
+  console.log(
+    `TIMEOUT: sent=${sent} echoed=${echoed} — combo payload=${payloadSize} withResponse=${withResponse} unreliable`
+  )
   Bare.exit(1)
 }, 120000)

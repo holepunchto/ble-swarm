@@ -111,7 +111,7 @@ test('central adopts the negotiated mtu for outbound chunks', async (t) => {
   await b.start()
   const links = await linked(a, b)
 
-  const central = links.find((conn) => conn._peripheralId != null)
+  const central = links.find((conn) => conn._peripheralId !== null)
   t.ok(central, 'one side is the central')
   // mtu − 3 (ATT) − 9 (frame header)
   t.is(central.rawStream.maxPayload, 235)

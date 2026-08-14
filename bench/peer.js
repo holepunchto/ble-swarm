@@ -48,7 +48,9 @@ bt.on('connection', (conn) => {
     })
     conn.on('end', () => {
       const secs = (Date.now() - started) / 1000
-      console.log(`DONE: ${received} bytes in ${secs.toFixed(1)}s = ${(received / secs / 1024).toFixed(2)} KiB/s`)
+      console.log(
+        `DONE: ${received} bytes in ${secs.toFixed(1)}s = ${(received / secs / 1024).toFixed(2)} KiB/s`
+      )
       Bare.exit(0)
     })
   }
