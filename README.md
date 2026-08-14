@@ -74,10 +74,19 @@ fallback); while `false`, it hunts aggressively (BLE is the only path).
 `connection` fires per deduped, opened link. `update` fires on any state or
 peer-count change.
 
+## Why a GATT stream?
+
+BLE offers two ways to move bytes: L2CAP channels and GATT. L2CAP is the
+natural fit for a stream, but it is broken in practice — iOS never answers an
+L2CAP channel opened by a macOS central and gives no disconnect signal for it.
+So instead the transport frames a byte stream over a single GATT
+characteristic: writes carry data one way, notifications the other, and that
+behaves the same on every platform. With Noise on top the result is an
+encrypted duplex that looks just like any other socket to the layers above.
+
 ## Design notes
 
-- No L2CAP: iOS never answers an L2CAP channel opened by a macOS central. One
-  data characteristic carries `[type:1][sessionId:8][payload]` frames.
+- One data characteristic carries `[type:1][sessionId:8][payload]` frames.
 - Both sides advertise and scan; a pair may link twice and both ends retire the
   same duplicate deterministically.
 - OPEN/HELLO frames carry the static public keys, so duplicate or unwanted
