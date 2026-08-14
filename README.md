@@ -3,7 +3,7 @@
 Bluetooth LE hyperswarm transport. Nearby peers discover each other by
 advertising and scanning a topic-derived GATT service UUID, speak a framed byte
 stream over a single write+notify characteristic, and come out the other side
-as Noise-encrypted duplex streams — the same shape hyperswarm emits, so a BLE
+as Noise-encrypted duplex streams — the same connections hyperswarm emits, so a BLE
 link can be fed straight into corestore replication.
 
 ```

@@ -9,7 +9,7 @@ const BLETransport = require('./lib/transport')
 const backend = require('#bluetooth')
 
 /**
- * Hyperswarm-shaped swarm over Bluetooth LE. Construct once and toggle with
+ * Bluetooth LE hyperswarm transport. Construct once and toggle with
  * start()/stop() — the underlying radio managers are created a single time and
  * suspended/resumed, never destroyed.
  *
