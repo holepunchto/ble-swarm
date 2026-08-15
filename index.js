@@ -53,10 +53,13 @@ module.exports = class BluetoothSwarm extends ReadyResource {
   }
 
   // One service per process: managers are reused across toggles (there is no
-  // removeService, and an abandoned manager's service lingers in the shared
-  // GATT db, capturing dialers). Only after a radio power cycle — which wipes
-  // the db — is a rebuild with fresh managers safe (and necessary: cycled
-  // managers wedge).
+  // removeService, an abandoned manager's service lingers in the shared GATT
+  // db capturing dialers, and destroying them kills peer connections without
+  // iOS ever delivering a disconnect — remote centrals zombie). Only after a
+  // radio power cycle — which wipes the db — is a rebuild with fresh managers
+  // safe (and necessary: cycled managers wedge). The l2cap listener IS
+  // retracted and republished across a toggle: one that lives through
+  // destroyed channels wedges silently.
   async start() {
     if (!this.supported || this.started || this.closing || this.closed) return
     this.started = true

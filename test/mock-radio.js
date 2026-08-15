@@ -12,8 +12,59 @@ const b4a = require('b4a')
 
 const DEFAULT_MTU = 247
 
-function makeMockBluetooth({ mtu: maxMtu = DEFAULT_MTU } = {}) {
+// l2cap modes: 'ok' (channels open), 'silent' (openL2CAPChannel never answers —
+// the iOS-peripheral/macOS-central hang), 'none' (no publishChannel support,
+// like an old backend). Mutable via setL2cap so tests can heal the radio.
+function makeMockBluetooth({ mtu: maxMtu = DEFAULT_MTU, l2cap = 'ok' } = {}) {
   let addrSeq = 0
+  let psmSeq = 0x80
+
+  class MockChannel extends EventEmitter {
+    constructor() {
+      super()
+      this._peer = null
+      this.destroyed = false
+    }
+
+    write(data) {
+      if (this.destroyed) return true
+      const peer = this._peer
+      const buf = b4a.from(data)
+      queueMicrotask(() => {
+        if (!peer.destroyed) peer.emit('data', buf)
+      })
+      return true // the mock never backpressures
+    }
+
+    end() {
+      const peer = this._peer
+      queueMicrotask(() => {
+        if (!peer.destroyed) peer.emit('end')
+      })
+    }
+
+    // real channels are streamx duplexes — the mock never backpressures
+    pause() {}
+    resume() {}
+
+    destroy() {
+      if (this.destroyed) return
+      this.destroyed = true
+      const peer = this._peer
+      queueMicrotask(() => {
+        this.emit('close')
+        if (!peer.destroyed) peer.destroy()
+      })
+    }
+  }
+
+  function channelPair() {
+    const a = new MockChannel()
+    const b = new MockChannel()
+    a._peer = b
+    b._peer = a
+    return [a, b]
+  }
   const advertisers = new Set() // Server instances currently advertising
   const scanners = new Set() // { central, uuids, opts }
   let pendingServer = null // last Server awaiting its device's Central
@@ -80,6 +131,13 @@ function makeMockBluetooth({ mtu: maxMtu = DEFAULT_MTU } = {}) {
     }
   }
 
+  if (l2cap !== 'none') {
+    Server.prototype.publishChannel = function publishChannel() {
+      if (this._psm === undefined) this._psm = psmSeq++
+      queueMicrotask(() => this.emit('channelPublish', this._psm))
+    }
+  }
+
   class Peripheral extends EventEmitter {
     constructor(server) {
       super()
@@ -124,6 +182,16 @@ function makeMockBluetooth({ mtu: maxMtu = DEFAULT_MTU } = {}) {
       const negotiated = Math.min(mtu, maxMtu)
       queueMicrotask(() => this.emit('mtuChanged', negotiated))
     }
+
+    openL2CAPChannel(psm) {
+      if (l2cap === 'silent') return // the iOS hang: no answer, no error
+      if (this._server._psm !== psm) return // wrong psm: also silence
+      const [mine, theirs] = channelPair()
+      queueMicrotask(() => {
+        this.emit('channelOpen', mine)
+        this._server.emit('channelOpen', theirs)
+      })
+    }
   }
 
   class Central extends EventEmitter {
@@ -161,7 +229,11 @@ function makeMockBluetooth({ mtu: maxMtu = DEFAULT_MTU } = {}) {
 
   Server.ATT_SUCCESS = 0
 
-  return { Central, Server, Peripheral, Service, Characteristic }
+  const setL2cap = (mode) => {
+    l2cap = mode
+  }
+
+  return { Central, Server, Peripheral, Service, Characteristic, setL2cap }
 }
 
 // A backend stuck in a given adapter state — for the facade state-machine tests.
