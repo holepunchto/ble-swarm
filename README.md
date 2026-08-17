@@ -1,5 +1,8 @@
 # ble-swarm
 
+> [!IMPORTANT]
+> This module is experimental. The API is subject to change and may break at any time.
+
 Bluetooth LE hyperswarm transport. Nearby peers discover each other by
 advertising and scanning a topic-derived GATT service UUID, speak a framed byte
 stream over a single write+notify characteristic, and come out the other side
