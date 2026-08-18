@@ -157,6 +157,31 @@ test('pipe l2cap links over a channel and exchanges data', async (t) => {
   t.alike(await once(ca, 'data'), b4a.from('right back'), 'b -> a')
 })
 
+test('pipe l2cap links when the id preamble arrives glued to handshake bytes', async (t) => {
+  // the channel is a byte stream: coalesced deliveries put the first Noise
+  // bytes in the same 'data' event as the id — the rest must reach the session
+  const backend = makeMockBluetooth({ coalesce: true })
+  const a = createSwarm(t, backend, { pipe: 'l2cap' })
+  const b = createSwarm(t, backend, { pipe: 'l2cap' })
+
+  await a.start()
+  await b.start()
+  const [ca, cb] = await linked(a, b)
+
+  ca.write(b4a.from('coalesced'))
+  t.alike(await once(cb, 'data'), b4a.from('coalesced'), 'a -> b')
+})
+
+test('frames: the id round-trips the codec as the same hex string', (t) => {
+  const { TYPE_DATA, encodeFrame, decodeFrame } = require('../lib/frames')
+  const id = 'a1b2c3d4e5f60718'
+  const f = decodeFrame(encodeFrame(TYPE_DATA, id, b4a.from('payload')))
+  t.is(f.type, TYPE_DATA)
+  t.is(f.id, id)
+  t.alike(b4a.from(f.payload), b4a.from('payload'))
+  t.is(decodeFrame(b4a.alloc(4)), null, 'short buffer decodes to null')
+})
+
 test('pipe l2cap refuses a gatt peer instead of degrading', async (t) => {
   const backend = makeMockBluetooth()
   const a = createSwarm(t, backend, { pipe: 'l2cap' })

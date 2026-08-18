@@ -15,7 +15,10 @@ const DEFAULT_MTU = 247
 // l2cap modes: 'ok' (channels open), 'silent' (openL2CAPChannel never answers —
 // the iOS-peripheral/macOS-central hang), 'none' (no publishChannel support,
 // like an old backend). Mutable via setL2cap so tests can heal the radio.
-function makeMockBluetooth({ mtu: maxMtu = DEFAULT_MTU, l2cap = 'ok' } = {}) {
+// coalesce: merge back-to-back channel writes into one 'data' delivery — the
+// byte-stream reality where the id preamble arrives glued to the first
+// handshake bytes.
+function makeMockBluetooth({ mtu: maxMtu = DEFAULT_MTU, l2cap = 'ok', coalesce = false } = {}) {
   let addrSeq = 0
   let psmSeq = 0x80
 
@@ -29,6 +32,24 @@ function makeMockBluetooth({ mtu: maxMtu = DEFAULT_MTU, l2cap = 'ok' } = {}) {
     write(data) {
       if (this.destroyed) return true
       const peer = this._peer
+      if (coalesce) {
+        // hold each delivery until a second write arrives (or 20ms passes) so
+        // back-to-back writes — id preamble + first handshake bytes — always
+        // land as ONE 'data' event, like a real byte stream may deliver them
+        this._pending = this._pending ? b4a.concat([this._pending, b4a.from(data)]) : b4a.from(data)
+        this._pendingWrites = (this._pendingWrites || 0) + 1
+        const flush = () => {
+          clearTimeout(this._flushTimer)
+          this._flushTimer = null
+          this._pendingWrites = 0
+          const buf = this._pending
+          this._pending = null
+          if (buf && !peer.destroyed) peer.emit('data', buf)
+        }
+        if (this._pendingWrites >= 2) flush()
+        else if (!this._flushTimer) this._flushTimer = setTimeout(flush, 20)
+        return true
+      }
       const buf = b4a.from(data)
       queueMicrotask(() => {
         if (!peer.destroyed) peer.emit('data', buf)
