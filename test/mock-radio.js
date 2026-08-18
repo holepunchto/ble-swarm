@@ -157,6 +157,9 @@ function makeMockBluetooth({ mtu: maxMtu = DEFAULT_MTU, l2cap = 'ok', coalesce =
       if (this._psm === undefined) this._psm = psmSeq++
       queueMicrotask(() => this.emit('channelPublish', this._psm))
     }
+    Server.prototype.unpublishChannel = function unpublishChannel(_psm) {
+      this._psm = undefined // the next publish gets a fresh psm, like the OS
+    }
   }
 
   class Peripheral extends EventEmitter {

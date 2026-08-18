@@ -209,6 +209,38 @@ test('pipe l2cap never links when the open hangs', async (t) => {
   t.is(b.peers, 0)
 })
 
+test('psm rotation waits for pending sessions instead of breaking them', async (t) => {
+  const { TYPE_OPEN, PIPE_L2CAP, encodeFrame, encodeKeyPayload } = require('../lib/frames')
+  const backend = makeMockBluetooth()
+  const a = createSwarm(t, backend, { pipe: 'l2cap' })
+  await a.start()
+
+  const tr = a.transport
+  await until(a, () => tr._l2cap.psm !== null)
+  const psm = tr._l2cap.psm
+  // near-zero keys: smaller than any real key, so the initiator tie-break
+  // always accepts these OPENs
+  const open = (id, fill) =>
+    tr._onServerFrame(encodeFrame(TYPE_OPEN, id, encodeKeyPayload(b4a.alloc(32, fill), PIPE_L2CAP, null)))
+
+  // two inbound sessions, both still waiting for their l2cap channel
+  open('11'.repeat(8), 0)
+  open('22'.repeat(8), 1)
+  t.is(tr._sessions.size, 2)
+  open('11'.repeat(8), 0)
+  t.is(tr._sessions.size, 2, 'a duplicate OPEN is ignored')
+
+  // one dies — the other is mid-handshake, so the psm must survive
+  tr._closeServerSession('11'.repeat(8))
+  t.is(tr._l2cap.psm, psm, 'rotation deferred while a session is pending')
+
+  // the last pending session binds its stream — now the deferred rotation lands
+  const { Duplex } = require('streamx')
+  tr._bindServerStream(tr._sessions.get('22'.repeat(8)), new Duplex(), 'l2cap')
+  await until(a, () => tr._l2cap.psm !== null && tr._l2cap.psm !== psm)
+  t.pass('listener rotated to a fresh psm once nothing was pending')
+})
+
 test('pipe l2cap never links on a backend without channel support', async (t) => {
   const backend = makeMockBluetooth({ l2cap: 'none' })
   const a = createSwarm(t, backend, { pipe: 'l2cap' })
