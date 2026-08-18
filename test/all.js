@@ -245,7 +245,9 @@ test('psm rotation waits for pending sessions instead of breaking them', async (
   // near-zero keys: smaller than any real key, so the initiator tie-break
   // always accepts these OPENs
   const open = (id, fill) =>
-    tr._onServerFrame(encodeFrame(TYPE_OPEN, id, encodeKeyPayload(b4a.alloc(32, fill), PIPE_L2CAP, null)))
+    tr._onServerFrame(
+      encodeFrame(TYPE_OPEN, id, encodeKeyPayload(b4a.alloc(32, fill), PIPE_L2CAP, null))
+    )
 
   // two inbound sessions, both still waiting for their l2cap channel
   open('11'.repeat(8), 0)
