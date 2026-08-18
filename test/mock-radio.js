@@ -94,7 +94,7 @@ function makeMockBluetooth({ mtu: maxMtu = DEFAULT_MTU, l2cap = 'ok', coalesce =
     for (const s of scanners) {
       if (s.central._ownServer === server) continue // own advertisement — not delivered
       if (!s.uuids.includes(server._uuid)) continue
-      queueMicrotask(() => s.central.emit('discover', { id: server._addr }))
+      queueMicrotask(() => s.central.emit('discover', { id: server._addr, rssi: server.rssi }))
     }
   }
 

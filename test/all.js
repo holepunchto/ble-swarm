@@ -209,6 +209,30 @@ test('pipe l2cap never links when the open hangs', async (t) => {
   t.is(b.peers, 0)
 })
 
+test('rate-limited discoveries dial the strongest signal first', async (t) => {
+  const backend = makeMockBluetooth()
+  const a = createSwarm(t, backend)
+  await a.start()
+
+  const tr = a.transport
+  const dialed = []
+  tr.central.connect = (p) => dialed.push(p.id) // record order, never link
+
+  // inside one dial window all discoveries are held; the flush must sort
+  tr._lastDial = Date.now()
+  tr._onDiscover({ id: 'weak', rssi: -90 })
+  tr._onDiscover({ id: 'strong', rssi: -40 })
+  tr._onDiscover({ id: 'mystery' }) // no rssi reported — ranks last
+  tr._onDiscover({ id: 'cooled', rssi: -10 })
+  t.is(dialed.length, 0, 'all held for the window')
+
+  // guards re-run at flush time: the strongest candidate went cold meanwhile
+  tr._device('cooled').coolUntil = Date.now() + 60000
+
+  await until(a, () => dialed.length === 3)
+  t.alike(dialed, ['strong', 'weak', 'mystery'], 'strongest first, no rssi last, cooled skipped')
+})
+
 test('psm rotation waits for pending sessions instead of breaking them', async (t) => {
   const { TYPE_OPEN, PIPE_L2CAP, encodeFrame, encodeKeyPayload } = require('../lib/frames')
   const backend = makeMockBluetooth()
