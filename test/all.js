@@ -209,6 +209,22 @@ test('pipe l2cap never links when the open hangs', async (t) => {
   t.is(b.peers, 0)
 })
 
+test('an early l2cap channel error does not crash the process', async (t) => {
+  const EventEmitter = require('events')
+  const backend = makeMockBluetooth()
+  const a = createSwarm(t, backend, { l2cap: { timeout: 50 } })
+  await a.start()
+
+  // a channel that errors before its id preamble ever arrives
+  const channel = new EventEmitter()
+  channel.destroy = () => {}
+  a.transport.server.emit('channelOpen', channel)
+  channel.emit('error', new Error('boom'))
+
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  t.pass('survived an error before the stream bound')
+})
+
 test('rate-limited discoveries dial the strongest signal first', async (t) => {
   const backend = makeMockBluetooth()
   const a = createSwarm(t, backend)
