@@ -3,61 +3,12 @@ const b4a = require('b4a')
 const crypto = require('hypercore-crypto')
 
 const BluetoothSwarm = require('..')
-const { makeMockBluetooth } = require('./mock-radio')
+const { TOPIC, createSwarm, once, until, link, linked, makeMockBluetooth } = require('./helpers')
 
 // Tests drive the transport's real timers (dial intervals, scan cycles), so a
 // heavily loaded machine slips them. Declare a generous deadline so slowness
 // never fails a logically-correct test; a genuine hang still surfaces.
 test.configure({ timeout: 120000 })
-
-const TOPIC = crypto.hash(b4a.from('keet-bluetooth-test'))
-
-function createSwarm(t, backend, opts = {}) {
-  const bt = new BluetoothSwarm({
-    backend,
-    keyPair: crypto.keyPair(),
-    topic: TOPIC,
-    ...opts
-  })
-  t.teardown(() => bt.close())
-  return bt
-}
-
-function once(emitter, event) {
-  return new Promise((resolve) => emitter.once(event, resolve))
-}
-
-// poll with a live timer: transport timers are unref'd, so waiting purely on
-// 'update' events lets the loop empty and trips brittle's deadlock detector
-async function until(bt, fn) {
-  while (!fn()) await new Promise((resolve) => setTimeout(resolve, 25))
-}
-
-function link(bt) {
-  return bt.transport.peers.values().next().value
-}
-
-// Both sides dial, so the first-tracked channel can be retired for its
-// duplicate right after peers hits 1 — settle until both ends hold a live one.
-async function linked(a, b) {
-  await until(a, () => a.connections.size === 1)
-  await until(b, () => b.connections.size === 1)
-  while (true) {
-    await new Promise((resolve) => setTimeout(resolve, 25))
-    const ca = link(a)
-    const cb = link(b)
-    if (
-      a.connections.size === 1 &&
-      b.connections.size === 1 &&
-      ca &&
-      cb &&
-      !ca.destroyed &&
-      !cb.destroyed
-    ) {
-      return [ca, cb]
-    }
-  }
-}
 
 test('links two swarms, dedupes to one channel and exchanges data', async (t) => {
   const backend = makeMockBluetooth()
@@ -106,8 +57,8 @@ test('suspend halts io and resume restores; both preserve the start intent', asy
   t.is(a.suspended, true, 'suspended is a public flag (hyperswarm parity)')
   t.is(a.started, true, 'suspend does not clear the start intent')
   t.is(a.state, 'off', 'suspended reads as off')
-  await until(a, () => a.connections.size === 0)
-  await until(b, () => b.connections.size === 0)
+  await until(() => a.connections.size === 0)
+  await until(() => b.connections.size === 0)
 
   // resume: same managers, relinks
   await a.resume()
@@ -159,8 +110,8 @@ test('stop drops links fast and start reuses the same transport', async (t) => {
   await a.stop()
   await b.stop()
   t.is(a.state, 'off')
-  await until(a, () => a.connections.size === 0)
-  await until(b, () => b.connections.size === 0)
+  await until(() => a.connections.size === 0)
+  await until(() => b.connections.size === 0)
 
   await a.start()
   await b.start()
@@ -334,7 +285,7 @@ test('rate-limited discoveries dial the strongest signal first', async (t) => {
   // guards re-run at flush time: the strongest candidate went cold meanwhile
   tr._device('cooled').coolUntil = Date.now() + 60000
 
-  await until(a, () => dialed.length === 3)
+  await until(() => dialed.length === 3)
   t.alike(dialed, ['strong', 'weak', 'mystery'], 'strongest first, no rssi last, cooled skipped')
 })
 
@@ -345,7 +296,7 @@ test('psm rotation waits for pending sessions instead of breaking them', async (
   await a.start()
 
   const tr = a.transport
-  await until(a, () => tr._l2cap.psm !== null)
+  await until(() => tr._l2cap.psm !== null)
   const psm = tr._l2cap.psm
   // near-zero keys: smaller than any real key, so the initiator tie-break
   // always accepts these OPENs
@@ -368,7 +319,7 @@ test('psm rotation waits for pending sessions instead of breaking them', async (
   // the last pending session binds its stream — now the deferred rotation lands
   const { Duplex } = require('streamx')
   tr._bindServerStream(tr._sessions.get('22'.repeat(8)), new Duplex(), 'l2cap')
-  await until(a, () => tr._l2cap.psm !== null && tr._l2cap.psm !== psm)
+  await until(() => tr._l2cap.psm !== null && tr._l2cap.psm !== psm)
   t.pass('listener rotated to a fresh psm once nothing was pending')
 })
 
@@ -408,8 +359,8 @@ test('pipe l2cap relinks after a toggle', async (t) => {
   await linked(a, b)
 
   await a.stop()
-  await until(a, () => a.connections.size === 0)
-  await until(b, () => b.connections.size === 0)
+  await until(() => a.connections.size === 0)
+  await until(() => b.connections.size === 0)
 
   await a.start()
   const [ca, cb] = await linked(a, b)
@@ -491,7 +442,7 @@ test('destroying a link relinks without a toggle', async (t) => {
   const [ca] = await linked(a, b)
 
   ca.destroy()
-  await until(a, () => a.connections.size === 0)
+  await until(() => a.connections.size === 0)
 
   await linked(a, b)
   t.pass('both sides recovered on their own')
@@ -507,9 +458,9 @@ test('three swarms mesh pairwise', async (t) => {
   await b.start()
   await c.start()
 
-  await until(a, () => a.connections.size === 2)
-  await until(b, () => b.connections.size === 2)
-  await until(c, () => c.connections.size === 2)
+  await until(() => a.connections.size === 2)
+  await until(() => b.connections.size === 2)
+  await until(() => c.connections.size === 2)
   t.pass('every pair linked')
 })
 
@@ -526,7 +477,7 @@ test('pipe l2cap relinks after a radio power cycle', async (t) => {
   a.transport.server.emit('stateChange', 'poweredOff')
   a.transport.central.state = 'poweredOff'
   a.transport.central.emit('stateChange', 'poweredOff')
-  await until(a, () => a.connections.size === 0)
+  await until(() => a.connections.size === 0)
 
   const wedged = a.transport
   a.transport.server.state = 'poweredOn'
@@ -534,7 +485,7 @@ test('pipe l2cap relinks after a radio power cycle', async (t) => {
   a.transport.central.state = 'poweredOn'
   a.transport.central.emit('stateChange', 'poweredOn')
 
-  await until(a, () => a.transport && a.transport !== wedged)
+  await until(() => a.transport && a.transport !== wedged)
   const [ca] = await linked(a, b)
   t.ok(ca.rawStream.channel, 'the rebuilt transport republished and relinked over l2cap')
 })
@@ -553,7 +504,7 @@ test('relinks after a radio power cycle', async (t) => {
   a.transport.server.emit('stateChange', 'poweredOff')
   a.transport.central.state = 'poweredOff'
   a.transport.central.emit('stateChange', 'poweredOff')
-  await until(a, () => a.connections.size === 0)
+  await until(() => a.connections.size === 0)
 
   // radio returns: the facade must abandon the wedged managers, build a
   // fresh transport and relink without an app-level toggle
@@ -563,7 +514,7 @@ test('relinks after a radio power cycle', async (t) => {
   a.transport.central.state = 'poweredOn'
   a.transport.central.emit('stateChange', 'poweredOn')
 
-  await until(a, () => a.transport && a.transport !== wedged)
+  await until(() => a.transport && a.transport !== wedged)
   t.not(a.transport, wedged, 'transport rebuilt with fresh managers')
   await linked(a, b)
   t.pass('relinked after power cycle')
@@ -576,13 +527,13 @@ test('a crowd meshes within its link caps', async (t) => {
   await Promise.all(swarms.map((s) => s.start()))
 
   // everyone finds at least one peer — gossip covers the rest of the crowd
-  await until(swarms[0], () => swarms.every((s) => s.connections.size >= 1))
+  await until(() => swarms.every((s) => s.connections.size >= 1))
   for (const s of swarms) {
     t.ok(s.connections.size >= 1, 'device linked')
     t.ok(s.connections.size <= 12, 'links stay within maxOutbound + maxInbound')
   }
 
   // the dial machinery settles instead of storming
-  await until(swarms[0], () => swarms.every((s) => !s.transport._isDialing()))
+  await until(() => swarms.every((s) => !s.transport._isDialing()))
   t.pass('dialing settled')
 })
