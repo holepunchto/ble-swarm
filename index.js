@@ -9,20 +9,25 @@ const BLETransport = require('./lib/transport')
 const backend = require('#bluetooth')
 
 /**
- * Bluetooth LE hyperswarm transport. Construct once and toggle with
- * start()/stop() — the underlying radio managers are created a single time and
- * suspended/resumed, never destroyed.
+ * Bluetooth LE hyperswarm transport. Two orthogonal axes drive the radio:
+ * start()/stop() is the durable user intent (enabled), suspend()/resume() is
+ * the transient host-lifecycle pause (app background/foreground). The radio is
+ * live only while started AND not suspended. The underlying managers are
+ * created once and suspended/resumed, never destroyed.
  *
  * @example
  * const bt = new BluetoothSwarm({ keyPair, topic })
  * bt.on('connection', (conn) => { ... }) // NoiseSecretStream, deduped
- * await bt.start()
+ * await bt.start()          // user enables
+ * await bt.suspend()        // app backgrounds — radio down, intent kept
+ * await bt.resume()         // app foregrounds — radio back up
  */
 module.exports = class BluetoothSwarm extends ReadyResource {
   constructor(opts = {}) {
     super()
     this.started = false
     this.transport = null
+    this.suspended = false
     this._opts = opts
     this._backend = opts.backend !== undefined ? opts.backend : backend
     this._online = opts.online === true
@@ -39,17 +44,28 @@ module.exports = class BluetoothSwarm extends ReadyResource {
     return this.transport.state
   }
 
-  get peers() {
-    return this.transport ? this.transport.linkCount : 0
+  // torn down (hyperswarm parity for ReadyResource's `closed`)
+  get destroyed() {
+    return this.closed
   }
 
-  // live NoiseSecretStreams, hyperswarm-style
+  // live links keyed by remote public key hex (hyperswarm-shaped Map)
+  get peers() {
+    return this.transport ? this.transport.peers : new Map()
+  }
+
+  // live NoiseSecretStreams as a Set; count with connections.size
   get connections() {
-    return this.transport ? this.transport.peers.values() : [].values()
+    return new Set(this.transport ? this.transport.peers.values() : [])
+  }
+
+  // in-flight outbound dials
+  get connecting() {
+    return this.transport ? this.transport.connecting : 0
   }
 
   status() {
-    return { state: this.state, peers: this.peers }
+    return { state: this.state, peers: this.connections.size }
   }
 
   // One service per process: managers are reused across toggles (there is no
@@ -63,6 +79,14 @@ module.exports = class BluetoothSwarm extends ReadyResource {
   async start() {
     if (!this.supported || this.started || this.closing || this.closed) return
     this.started = true
+    // if the host has us suspended, hold the radio down until resume()
+    if (!this.suspended) await this._activate()
+    this.emit('update')
+  }
+
+  // Bring the radio up: resume the existing managers, or build fresh ones on
+  // first start / after a radio power cycle wedged the old ones.
+  async _activate() {
     if (this.transport && !this.transport.radioCycled) {
       this.transport.resume()
     } else {
@@ -70,7 +94,6 @@ module.exports = class BluetoothSwarm extends ReadyResource {
       this.transport = this._createTransport()
       await this.transport.ready()
     }
-    this.emit('update')
   }
 
   _abandon() {
@@ -104,7 +127,7 @@ module.exports = class BluetoothSwarm extends ReadyResource {
   async _rebuild(old) {
     if (this.transport !== old || this.closing || this.closed) return
     this._abandon()
-    if (this.started) {
+    if (this.started && !this.suspended) {
       this.transport = this._createTransport()
       await this.transport.ready().catch(safetyCatch)
     }
@@ -114,8 +137,30 @@ module.exports = class BluetoothSwarm extends ReadyResource {
   async stop() {
     if (!this.started) return
     this.started = false
-    if (this.transport) await this.transport.suspend()
+    // already down if the host suspended us; suspend() halts all radio io
+    if (this.transport && !this.suspended) await this.transport.suspend()
     this.emit('update')
+  }
+
+  // Transient host-lifecycle pause (app backgrounded). Halts all radio io but
+  // preserves the start/stop intent, so resume() restores to exactly that.
+  async suspend() {
+    if (this.suspended) return
+    this.suspended = true
+    if (this.started && this.transport) await this.transport.suspend()
+    this.emit('update')
+  }
+
+  async resume() {
+    if (!this.suspended) return
+    this.suspended = false
+    if (this.started) await this._activate()
+    this.emit('update')
+  }
+
+  // hyperswarm alias for close()
+  destroy() {
+    return this.close()
   }
 
   // Hint from the host: relax scanning while the internet path is up
