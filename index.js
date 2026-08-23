@@ -4,8 +4,6 @@ const { isMac } = require('which-runtime')
 
 const BLETransport = require('./lib/transport')
 
-// the #bluetooth import map resolves bare-bluetooth on supported platforms
-// and a null stub everywhere else
 const backend = require('#bluetooth')
 
 /**
@@ -44,22 +42,18 @@ module.exports = class BluetoothSwarm extends ReadyResource {
     return this.transport.state
   }
 
-  // torn down (hyperswarm parity for ReadyResource's `closed`)
   get destroyed() {
     return this.closed
   }
 
-  // live links keyed by remote public key hex (hyperswarm-shaped Map)
   get peers() {
     return this.transport ? this.transport.peers : new Map()
   }
 
-  // live NoiseSecretStreams as a Set; count with connections.size
   get connections() {
     return new Set(this.transport ? this.transport.peers.values() : [])
   }
 
-  // in-flight outbound dials
   get connecting() {
     return this.transport ? this.transport.connecting : 0
   }
@@ -79,13 +73,10 @@ module.exports = class BluetoothSwarm extends ReadyResource {
   async start() {
     if (!this.supported || this.started || this.closing || this.closed) return
     this.started = true
-    // if the host has us suspended, hold the radio down until resume()
     if (!this.suspended) await this._activate()
     this.emit('update')
   }
 
-  // Bring the radio up: resume the existing managers, or build fresh ones on
-  // first start / after a radio power cycle wedged the old ones.
   async _activate() {
     if (this.transport && !this.transport.radioCycled) {
       this.transport.resume()
@@ -155,12 +146,10 @@ module.exports = class BluetoothSwarm extends ReadyResource {
     this.emit('update')
   }
 
-  // hyperswarm alias for close()
   destroy() {
     return this.close()
   }
 
-  // Hint from the host: relax scanning while the internet path is up
   setOnline(online) {
     this._online = online === true
     if (this.transport) this.transport.setOnline(this._online)
