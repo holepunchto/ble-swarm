@@ -137,13 +137,10 @@ module.exports = class BluetoothSwarm extends ReadyResource {
   async stop() {
     if (!this.started) return
     this.started = false
-    // already down if the host suspended us; suspend() halts all radio io
     if (this.transport && !this.suspended) await this.transport.suspend()
     this.emit('update')
   }
 
-  // Transient host-lifecycle pause (app backgrounded). Halts all radio io but
-  // preserves the start/stop intent, so resume() restores to exactly that.
   async suspend() {
     if (this.suspended) return
     this.suspended = true
