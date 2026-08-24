@@ -46,6 +46,10 @@ module.exports = class BluetoothSwarm extends ReadyResource {
     return this.closed
   }
 
+  get topic() {
+    return this._opts.topic || null
+  }
+
   get peers() {
     return this.transport ? this.transport.peers : new Map()
   }

@@ -97,6 +97,10 @@ Pause all radio io for a transient host-lifecycle pause (app backgrounded), whil
 
 Restore the radio io paused by `suspend()`.
 
+#### `bt.topic`
+
+The current 32-byte topic Buffer, or `null` when none was given (the tag-derived default applies then).
+
 #### `await bt.setTopic(topic)`
 
 Switch the single active topic, live. Only the advertised and scanned uuid changes — the hosted data service sits on a fixed per-tag uuid, so no GATT surgery is involved. Existing links are dropped: a switch tunes away from the old topic's peers. `topic` must be a 32-byte Buffer.

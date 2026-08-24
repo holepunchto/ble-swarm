@@ -561,3 +561,79 @@ test('topics scope discovery and setTopic retunes live', async (t) => {
   await until(() => a.connections.size === 0 && b.connections.size === 0)
   t.pass('links dropped after tuning away')
 })
+
+test('setTopic with the current topic is a no-op', async (t) => {
+  const backend = makeMockBluetooth()
+  const a = createSwarm(t, backend)
+  await a.start()
+
+  let suspends = 0
+  const original = a.transport.suspend.bind(a.transport)
+  a.transport.suspend = async () => {
+    suspends++
+    return original()
+  }
+
+  const before = a.transport.discoveryUUID
+  await a.setTopic(require('./helpers').TOPIC)
+  t.is(a.transport.discoveryUUID, before, 'uuid unchanged')
+  t.is(suspends, 0, 'radio untouched')
+  t.alike(a.topic, require('./helpers').TOPIC, 'topic getter reflects the active topic')
+})
+
+test('setTopic before start applies on the first start', async (t) => {
+  const backend = makeMockBluetooth()
+  const OTHER = crypto.hash(b4a.from('pre-start-topic'))
+  const a = createSwarm(t, backend)
+  const b = createSwarm(t, backend, { topic: OTHER })
+
+  await b.setTopic(require('./helpers').TOPIC)
+  await a.start()
+  await b.start()
+
+  await linked(a, b)
+  t.pass('linked on the topic set before start')
+})
+
+test('setTopic while stopped sticks across the next start', async (t) => {
+  const backend = makeMockBluetooth()
+  const OTHER = crypto.hash(b4a.from('while-stopped-topic'))
+  const a = createSwarm(t, backend)
+  const b = createSwarm(t, backend)
+
+  await a.start()
+  await b.start()
+  await linked(a, b)
+
+  await b.stop()
+  await b.setTopic(OTHER)
+  await b.start()
+
+  await until(() => a.connections.size === 0)
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  t.is(a.connections.size, 0, 'stayed apart after restart on another topic')
+
+  await b.setTopic(require('./helpers').TOPIC)
+  await linked(a, b)
+  t.pass('relinked after switching back live')
+})
+
+test('topics partition a crowd and the hosted service stays fixed', async (t) => {
+  const backend = makeMockBluetooth()
+  const OTHER = crypto.hash(b4a.from('crowd-topic'))
+  const a = createSwarm(t, backend)
+  const b = createSwarm(t, backend)
+  const c = createSwarm(t, backend, { topic: OTHER })
+
+  await a.start()
+  await b.start()
+  await c.start()
+
+  await linked(a, b)
+  t.not(a.transport.discoveryUUID, a.transport.serviceUUID, 'topic uuid is not the hosted uuid')
+  t.is(a.transport.serviceUUID, c.transport.serviceUUID, 'hosted service uuid is shared')
+  t.not(a.transport.discoveryUUID, c.transport.discoveryUUID, 'topics diverge in discovery')
+
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  t.is(c.connections.size, 0, 'other topic stays alone')
+})
