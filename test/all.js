@@ -2,8 +2,7 @@ const test = require('brittle')
 const b4a = require('b4a')
 const crypto = require('hypercore-crypto')
 
-const BluetoothSwarm = require('..')
-const { TOPIC, createSwarm, once, until, link, linked, makeMockBluetooth } = require('./helpers')
+const { createSwarm, once, until, link, linked, makeMockBluetooth } = require('./helpers')
 
 // Tests drive the transport's real timers (dial intervals, scan cycles), so a
 // heavily loaded machine slips them. Declare a generous deadline so slowness
