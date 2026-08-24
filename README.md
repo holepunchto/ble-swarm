@@ -5,6 +5,8 @@
 
 Bluetooth LE transport shaped like [hyperswarm](https://github.com/holepunchto/hyperswarm). Nearby peers discover each other by advertising and scanning a topic-derived service UUID, negotiate a session over a single write+notify characteristic, and come out the other side as Noise-encrypted duplex streams. They are the same connections hyperswarm emits, so a BLE link feeds straight into corestore replication.
 
+The topic scopes discovery only: it is hashed into the advertised and scanned uuid, while the data service itself sits on a fixed per-tag uuid. That split is what makes `setTopic()` a live switch — retuning changes what the radio broadcasts and hunts for, never the GATT database.
+
 Session data moves over one of two pipes, chosen up front: `l2cap` (a real L2CAP channel per session, faster and with native flow control) or `gatt` (a framed byte stream over the characteristic, works everywhere).
 
 ## Installation
@@ -28,6 +30,8 @@ bt.on('connection', (conn) => {
 })
 
 await bt.start() // scan + advertise
+
+await bt.setTopic(otherTopic) // retune discovery live, links move to the new topic
 
 await bt.suspend() // app backgrounds: radio io paused, start intent kept
 await bt.resume() // app foregrounds: radio io restored
@@ -131,6 +135,7 @@ Either way, the characteristic still carries the OPEN/HELLO/CLOSE control frames
 
 - One data characteristic carries `[type:1][sessionId:8][payload]` frames. OPEN/HELLO payloads are `[key:32][flags:1]` followed by an optional PSM.
 - An l2cap central writes its 8-byte session id first so the server can match the channel to the session negotiated over GATT.
+- Discovery and hosting are split: the topic-derived uuid is advertised and scanned, the data service lives on a fixed per-tag uuid. Bluetooth offers no way to remove a hosted service, so a topic switch only restarts advertising and scanning.
 - Both sides advertise and scan; a pair may link twice and both ends retire the same duplicate deterministically.
 - OPEN/HELLO carry the static public keys, so duplicate or unwanted peers are refused before any Noise work.
 - Liveness is keepalive/timeout based, since iOS emits no disconnect for a vanished peer.
