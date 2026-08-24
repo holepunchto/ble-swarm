@@ -1,6 +1,7 @@
 const ReadyResource = require('ready-resource')
 const safetyCatch = require('safety-catch')
 const { isMac } = require('which-runtime')
+const b4a = require('b4a')
 
 const BLETransport = require('./lib/transport')
 
@@ -30,6 +31,9 @@ module.exports = class BluetoothSwarm extends ReadyResource {
     this._backend = opts.backend !== undefined ? opts.backend : backend
     this._online = opts.online === true
     this._gen = 0
+    this._topics = new Map()
+    const seed = opts.topics || (opts.topic !== undefined ? [opts.topic] : [])
+    for (const t of seed) this._topics.set(b4a.toString(t, 'hex'), t)
   }
 
   get supported() {
@@ -60,6 +64,22 @@ module.exports = class BluetoothSwarm extends ReadyResource {
 
   status() {
     return { state: this.state, peers: this.connections.size }
+  }
+
+  topics() {
+    return [...this._topics.values()]
+  }
+
+  join(topic) {
+    this._topics.set(b4a.toString(topic, 'hex'), topic)
+    if (this.transport) this.transport._setTopics(this.topics())
+    this.emit('update')
+  }
+
+  leave(topic) {
+    this._topics.delete(b4a.toString(topic, 'hex'))
+    if (this.transport) this.transport._setTopics(this.topics())
+    this.emit('update')
   }
 
   // One service per process: managers are reused across toggles (there is no
@@ -106,6 +126,7 @@ module.exports = class BluetoothSwarm extends ReadyResource {
       gen,
       backend: this._backend,
       online: this._online,
+      topics: this.topics(),
       onconnection: (conn) => this.emit('connection', conn)
     })
     transport.on('update', () => this.emit('update'))

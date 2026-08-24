@@ -2,7 +2,7 @@ const test = require('brittle')
 const b4a = require('b4a')
 const crypto = require('hypercore-crypto')
 
-const { createSwarm, once, until, link, linked, makeMockBluetooth } = require('./helpers')
+const { TOPIC, createSwarm, once, until, link, linked, makeMockBluetooth } = require('./helpers')
 
 // Tests drive the transport's real timers (dial intervals, scan cycles), so a
 // heavily loaded machine slips them. Declare a generous deadline so slowness
@@ -301,7 +301,7 @@ test('psm rotation waits for pending sessions instead of breaking them', async (
   // always accepts these OPENs
   const open = (id, fill) =>
     tr._onServerFrame(
-      encodeFrame(TYPE_OPEN, id, encodeKeyPayload(b4a.alloc(32, fill), PIPE_L2CAP, null))
+      encodeFrame(TYPE_OPEN, id, encodeKeyPayload(b4a.alloc(32, fill), PIPE_L2CAP, null, [TOPIC]))
     )
 
   // two inbound sessions, both still waiting for their l2cap channel
@@ -535,4 +535,118 @@ test('a crowd meshes within its link caps', async (t) => {
   // the dial machinery settles instead of storming
   await until(() => swarms.every((s) => !s.transport._isDialing()))
   t.pass('dialing settled')
+})
+
+test('topics: peers link only when their sets overlap', async (t) => {
+  const backend = makeMockBluetooth()
+  const X = crypto.hash(b4a.from('topic-x'))
+  const Y = crypto.hash(b4a.from('topic-y'))
+  const Z = crypto.hash(b4a.from('topic-z'))
+  const W = crypto.hash(b4a.from('topic-w'))
+
+  const a = createSwarm(t, backend, { topics: [X, Y] })
+  const b = createSwarm(t, backend, { topics: [Y, Z] }) // shares Y with a
+  const c = createSwarm(t, backend, { topics: [W] }) // shares nothing
+
+  await a.start()
+  await b.start()
+  await c.start()
+
+  await linked(a, b) // overlap on Y
+  await new Promise((resolve) => setTimeout(resolve, 200)) // let c try and be refused
+  t.is(c.connections.size, 0, 'no shared topic — c links nobody')
+  t.is(a.connections.size, 1, 'a links only b')
+})
+
+test('topics: join and leave manage the set and reach the live transport', async (t) => {
+  const backend = makeMockBluetooth()
+  const R = crypto.hash(b4a.from('room-r'))
+  const bt = createSwarm(t, backend, { topics: [] })
+  await bt.start()
+
+  t.is(bt.topics().length, 0, 'starts with no topics')
+  bt.join(R)
+  t.ok(
+    bt.topics().some((x) => b4a.equals(x, R)),
+    'join adds the topic'
+  )
+  t.is(bt.transport._topics.size, 1, 'the live transport sees the join')
+  bt.leave(R)
+  t.is(bt.topics().length, 0, 'leave removes it')
+  t.is(bt.transport._topics.size, 0, 'and the transport too')
+})
+
+test('topics: frame codec round-trips key, flags, psm and topics', (t) => {
+  const { PIPE_L2CAP, encodeKeyPayload, decodeKeyPayload } = require('../lib/frames')
+  const key = crypto.hash(b4a.from('key'))
+  const topics = [crypto.hash(b4a.from('t1')), crypto.hash(b4a.from('t2'))]
+
+  const hello = decodeKeyPayload(encodeKeyPayload(key, PIPE_L2CAP, 192, topics))
+  t.ok(b4a.equals(hello.key, key), 'key round-trips')
+  t.is(hello.psm, 192, 'psm round-trips')
+  t.is(hello.topics.length, 2, 'both topics decode')
+  t.ok(
+    b4a.equals(hello.topics[0], topics[0]) && b4a.equals(hello.topics[1], topics[1]),
+    'topic bytes intact and ordered'
+  )
+
+  const open = decodeKeyPayload(encodeKeyPayload(key, PIPE_L2CAP, null, topics))
+  t.is(open.psm, null, 'OPEN carries topics with no psm')
+  t.is(open.topics.length, 2, 'OPEN topics decode')
+
+  const bare = decodeKeyPayload(encodeKeyPayload(key, 0, null))
+  t.is(bare.flags, 0, 'bare key: no flags')
+  t.is(bare.psm, null, 'bare key: no psm')
+  t.is(bare.topics.length, 0, 'bare key: no topics')
+})
+
+test('topics: overlapping on several topics still yields one link', async (t) => {
+  const backend = makeMockBluetooth()
+  const P = crypto.hash(b4a.from('p'))
+  const Q = crypto.hash(b4a.from('q'))
+  const a = createSwarm(t, backend, { topics: [P, Q] })
+  const b = createSwarm(t, backend, { topics: [P, Q] })
+
+  await a.start()
+  await b.start()
+  await linked(a, b)
+  await new Promise((resolve) => setTimeout(resolve, 150))
+  t.is(a.connections.size, 1, 'two shared topics, still one link')
+  t.is(b.connections.size, 1)
+})
+
+test('topics: an empty set links nobody', async (t) => {
+  const backend = makeMockBluetooth()
+  const a = createSwarm(t, backend, { topics: [] })
+  const b = createSwarm(t, backend) // default TOPIC
+
+  await a.start()
+  await b.start()
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  t.is(a.connections.size, 0, 'no topics — no overlap with anyone')
+  t.is(b.connections.size, 0)
+})
+
+test('topics: global links everyone; a room links only its members', async (t) => {
+  const backend = makeMockBluetooth()
+  const G = crypto.hash(b4a.from('global'))
+  const R = crypto.hash(b4a.from('room'))
+  const a = createSwarm(t, backend, { topics: [G] })
+  const b = createSwarm(t, backend, { topics: [G] })
+  const c = createSwarm(t, backend, { topics: [G, R] })
+  const d = createSwarm(t, backend, { topics: [R] })
+
+  await Promise.all([a, b, c, d].map((s) => s.start()))
+
+  // a,b,c share global; c,d share the room. Expected links: a-b, a-c, b-c, c-d.
+  await until(
+    () =>
+      a.connections.size === 2 &&
+      b.connections.size === 2 &&
+      c.connections.size === 3 &&
+      d.connections.size === 1
+  )
+  t.is(a.connections.size, 2, 'a (global) links b and c, not d')
+  t.is(c.connections.size, 3, 'c (global+room) links a, b and d')
+  t.is(d.connections.size, 1, 'd (room-only) links only c')
 })
