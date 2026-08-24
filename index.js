@@ -155,6 +155,14 @@ module.exports = class BluetoothSwarm extends ReadyResource {
     if (this.transport) this.transport.setOnline(this._online)
   }
 
+  // Switch the single active topic. Applies live when the radio is up, and
+  // sticks for every later start/rebuild.
+  async setTopic(topic) {
+    this._opts = { ...this._opts, topic }
+    if (this.transport) await this.transport.setTopic(topic)
+    this.emit('update')
+  }
+
   async _close() {
     this.started = false
     if (this.transport) await this.transport.close()

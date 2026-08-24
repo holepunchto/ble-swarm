@@ -536,3 +536,28 @@ test('a crowd meshes within its link caps', async (t) => {
   await until(() => swarms.every((s) => !s.transport._isDialing()))
   t.pass('dialing settled')
 })
+
+test('topics scope discovery and setTopic retunes live', async (t) => {
+  const backend = makeMockBluetooth()
+  const OTHER = crypto.hash(b4a.from('another-topic'))
+  const a = createSwarm(t, backend)
+  const b = createSwarm(t, backend, { topic: OTHER })
+
+  await a.start()
+  await b.start()
+
+  // different topics: discovery never crosses
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  t.is(a.connections.size, 0, 'no link across topics')
+  t.is(b.connections.size, 0, 'no link across topics')
+
+  // retune b onto a's topic: they link
+  await b.setTopic(require('./helpers').TOPIC)
+  await linked(a, b)
+  t.is(a.connections.size, 1, 'linked after retune')
+
+  // tune b away again: the link drops and stays down
+  await b.setTopic(OTHER)
+  await until(() => a.connections.size === 0 && b.connections.size === 0)
+  t.pass('links dropped after tuning away')
+})
