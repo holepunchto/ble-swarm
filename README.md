@@ -3,7 +3,7 @@
 > [!IMPORTANT]
 > This module is experimental. The API is subject to change and may break at any time.
 
-Bluetooth LE transport shaped like [hyperswarm](https://github.com/holepunchto/hyperswarm). Nearby peers discover each other by advertising and scanning a topic-derived service UUID, negotiate a session over a single write+notify characteristic, and come out the other side as Noise-encrypted duplex streams. They are the same connections hyperswarm emits, so a BLE link feeds straight into corestore replication.
+Bluetooth LE transport shaped like [hyperswarm](https://github.com/holepunchto/hyperswarm). Nearby peers discover each other over a single fixed service UUID, negotiate the topics they share and a session in the handshake, and come out the other side as Noise-encrypted duplex streams. They are the same connections hyperswarm emits, so a BLE link feeds straight into corestore replication.
 
 Session data moves over one of two pipes, chosen up front: `l2cap` (a real L2CAP channel per session, faster and with native flow control) or `gatt` (a framed byte stream over the characteristic, works everywhere).
 
@@ -28,6 +28,7 @@ bt.on('connection', (conn) => {
 })
 
 await bt.start() // scan + advertise
+bt.join(otherTopic) // also keep links that share this topic
 
 await bt.suspend() // app backgrounds: radio io paused, start intent kept
 await bt.resume() // app foregrounds: radio io restored
@@ -40,8 +41,9 @@ await bt.resume() // app foregrounds: radio io restored
 Construct a new swarm. `opts` can include:
 
 - `keyPair`: the static Noise keypair used for identity and encryption, e.g. the hyperswarm keypair.
-- `topic`: the 32-byte topic the service UUID derives from. Only peers with the same topic discover each other.
-- `tag`: namespace for the service UUID. Defaults to `'ble-swarm'`.
+- `topic`: a 32-byte topic to join on construction.
+- `topics`: an array of 32-byte topics to join on construction.
+- `tag`: namespace for the fixed discovery UUID. Defaults to `'ble-swarm'`.
 - `shouldConnect(remotePublicKey)`: return `false` to refuse a peer before the handshake.
 - `maxOutbound`: concurrent outbound dials. Defaults to `4`.
 - `maxInbound`: concurrent inbound sessions. Defaults to `8`.
@@ -97,6 +99,18 @@ Pause all radio io for a transient host-lifecycle pause (app backgrounded), whil
 
 Restore the radio io paused by `suspend()`.
 
+#### `bt.join(topic)`
+
+Add a topic to the set. A link survives the handshake only if the two peers share at least one topic. `topic` must be a 32-byte Buffer. Takes effect on new links.
+
+#### `bt.leave(topic)`
+
+Remove a topic from the set. `topic` must be a 32-byte Buffer.
+
+#### `bt.topics()`
+
+The current set of joined topics, as an array of 32-byte Buffers.
+
 #### `bt.setOnline(online)`
 
 Hint from the host: while `true`, scanning duty-cycles lazily (BLE is a fallback); while `false`, it hunts aggressively (BLE is the only path).
@@ -108,6 +122,10 @@ A `{ state, peers }` snapshot, handy for reporting up to the host.
 #### `await bt.destroy()`
 
 Tear down for good, alias for `close()`. Stops the radio and releases the managers. The instance is single-use afterwards.
+
+## Topics
+
+Topics scope discovery, not what is shared. Every peer with the same `tag` advertises and scans one fixed service UUID, so discovery finds all nearby peers; the topic sets are then exchanged in the OPEN/HELLO handshake and a link is kept only if they overlap. A peer with no shared topic is refused on the control plane, before any L2CAP channel opens. Identity and encryption stay the Noise keypair, and replication over the link stays capability-gated, so two peers who share a topic but no data sync nothing.
 
 ## The two pipes
 
@@ -121,10 +139,10 @@ Either way, the characteristic still carries the OPEN/HELLO/CLOSE control frames
 
 ## Design notes
 
-- One data characteristic carries `[type:1][sessionId:8][payload]` frames. OPEN/HELLO payloads are `[key:32][flags:1]` followed by an optional PSM.
+- One data characteristic carries `[type:1][sessionId:8][payload]` frames. OPEN/HELLO payloads are `[key:32][flags:1]` followed by an optional PSM and topic list, the flag bits announcing which follow.
 - An l2cap central writes its 8-byte session id first so the server can match the channel to the session negotiated over GATT.
-- Both sides advertise and scan; a pair may link twice and both ends retire the same duplicate deterministically.
-- OPEN/HELLO carry the static public keys, so duplicate or unwanted peers are refused before any Noise work.
+- Both sides advertise and scan the one fixed UUID; a pair may link twice and both ends retire the same duplicate deterministically.
+- OPEN/HELLO carry the static public keys and the topic sets, so duplicate, unwanted, or non-overlapping peers are refused before any Noise work.
 - Liveness is keepalive/timeout based, since iOS emits no disconnect for a vanished peer.
 - Android centrals negotiate the MTU up (`requestMtu`) and size gatt chunks to it.
 
