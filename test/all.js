@@ -566,6 +566,18 @@ test('topics scope discovery and setTopic retunes live', async (t) => {
   t.pass('links dropped after tuning away')
 })
 
+test('no topic: the tag-derived default applies and peers link', async (t) => {
+  const backend = makeMockBluetooth()
+  const a = createSwarm(t, backend, { topic: undefined })
+  const b = createSwarm(t, backend, { topic: undefined })
+
+  await a.start()
+  await b.start()
+
+  await linked(a, b)
+  t.is(a.topic, null, 'no explicit topic set')
+})
+
 test('setTopic with the current topic is a no-op', async (t) => {
   const backend = makeMockBluetooth()
   const a = createSwarm(t, backend)
