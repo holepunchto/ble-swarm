@@ -18,6 +18,18 @@ function createSwarm(t, backend, opts = {}) {
   return bt
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+// Drive the mock radio's power state on both roles, as a platform would.
+function setRadioState(bt, state) {
+  for (const node of [bt.transport.server, bt.transport.central]) {
+    node.state = state
+    node.emit('stateChange', state)
+  }
+}
+
 function once(emitter, event) {
   return new Promise((resolve) => emitter.once(event, resolve))
 }
@@ -57,6 +69,8 @@ async function linked(a, b) {
 
 module.exports = {
   TOPIC,
+  sleep,
+  setRadioState,
   createSwarm,
   once,
   until,

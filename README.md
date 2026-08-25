@@ -115,11 +115,11 @@ Hint from the host: while `true`, scanning duty-cycles lazily (BLE is a fallback
 
 #### `bt.status()`
 
-A `{ state, peers }` snapshot, handy for reporting up to the host.
+A `{ state, peerCount }` snapshot, handy for reporting up to the host.
 
 #### `await bt.destroy()`
 
-Tear down for good, alias for `close()`. Stops the radio and releases the managers. The instance is single-use afterwards.
+Tear down for good, alias for `close()`. Stops the radio and leaves the native managers for the runtime to reclaim — destroying them explicitly double-frees on iOS. The instance is single-use afterwards.
 
 ## The two pipes
 

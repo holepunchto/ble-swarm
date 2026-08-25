@@ -27,6 +27,7 @@ module.exports = class BluetoothSwarm extends ReadyResource {
     this.transport = null
     this.suspended = false
     this._opts = opts
+    this._topic = opts.topic || null
     this._backend = opts.backend !== undefined ? opts.backend : backend
     this._online = opts.online === true
     this._gen = 0
@@ -47,11 +48,11 @@ module.exports = class BluetoothSwarm extends ReadyResource {
   }
 
   get topic() {
-    return this._opts.topic || null
+    return this._topic
   }
 
   get peers() {
-    return this.transport ? this.transport.peers : new Map()
+    return new Map(this.transport ? this.transport.peers : null)
   }
 
   get connections() {
@@ -63,7 +64,7 @@ module.exports = class BluetoothSwarm extends ReadyResource {
   }
 
   status() {
-    return { state: this.state, peers: this.connections.size }
+    return { state: this.state, peerCount: this.transport ? this.transport.peers.size : 0 }
   }
 
   // One service per process: managers are reused across toggles (there is no
@@ -107,6 +108,7 @@ module.exports = class BluetoothSwarm extends ReadyResource {
     const gen = ++this._gen
     const transport = new BLETransport({
       ...this._opts,
+      topic: this._topic || undefined,
       gen,
       backend: this._backend,
       online: this._online,
@@ -162,8 +164,12 @@ module.exports = class BluetoothSwarm extends ReadyResource {
   // Switch the single active topic. Applies live when the radio is up, and
   // sticks for every later start/rebuild.
   async setTopic(topic) {
-    this._opts = { ...this._opts, topic }
-    if (this.transport) await this.transport.setTopic(topic)
+    this._topic = topic
+    const changed = this.transport ? this.transport.setTopic(topic) : false
+    if (changed && this.started && !this.suspended) {
+      await this.transport.suspend()
+      if (this.started && !this.suspended && this.transport) this.transport.resume()
+    }
     this.emit('update')
   }
 

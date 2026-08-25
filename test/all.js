@@ -2,7 +2,17 @@ const test = require('brittle')
 const b4a = require('b4a')
 const crypto = require('hypercore-crypto')
 
-const { createSwarm, once, until, link, linked, makeMockBluetooth } = require('./helpers')
+const {
+  TOPIC,
+  createSwarm,
+  once,
+  until,
+  link,
+  linked,
+  sleep,
+  setRadioState,
+  makeMockBluetooth
+} = require('./helpers')
 
 // Tests drive the transport's real timers (dial intervals, scan cycles), so a
 // heavily loaded machine slips them. Declare a generous deadline so slowness
@@ -19,6 +29,7 @@ test('links two swarms, dedupes to one channel and exchanges data', async (t) =>
   t.is(a.state, 'on')
 
   const [ca, cb] = await linked(a, b)
+  t.alike(a.status(), { state: 'on', peerCount: 1 }, 'status reflects the link')
   t.ok(b4a.equals(ca.remotePublicKey, cb.publicKey), 'keys cross-match')
   t.ok(b4a.equals(cb.remotePublicKey, ca.publicKey), 'keys cross-match')
 
@@ -35,7 +46,7 @@ test('shouldConnect refusal prevents any link', async (t) => {
 
   await a.start()
   await b.start()
-  await new Promise((resolve) => setTimeout(resolve, 200))
+  await sleep(200)
 
   t.is(a.connections.size, 0)
   t.is(b.connections.size, 0)
@@ -228,7 +239,7 @@ test('pipe l2cap refuses a gatt peer instead of degrading', async (t) => {
 
   await a.start()
   await b.start()
-  await new Promise((resolve) => setTimeout(resolve, 300))
+  await sleep(300)
 
   t.is(a.connections.size, 0, 'l2cap never carries a gatt link')
   t.is(b.connections.size, 0)
@@ -242,7 +253,7 @@ test('pipe l2cap never links when the open hangs', async (t) => {
 
   await a.start()
   await b.start()
-  await new Promise((resolve) => setTimeout(resolve, 500))
+  await sleep(500)
 
   t.is(a.connections.size, 0, 'no link — the failure stays visible')
   t.is(b.connections.size, 0)
@@ -260,7 +271,7 @@ test('an early l2cap channel error does not crash the process', async (t) => {
   a.transport.server.emit('channelOpen', channel)
   channel.emit('error', new Error('boom'))
 
-  await new Promise((resolve) => setTimeout(resolve, 100))
+  await sleep(100)
   t.pass('survived an error before the stream bound')
 })
 
@@ -310,6 +321,9 @@ test('psm rotation waits for pending sessions instead of breaking them', async (
   t.is(tr._sessions.size, 2)
   open('11'.repeat(8), 0)
   t.is(tr._sessions.size, 2, 'a duplicate OPEN is ignored')
+  // hold the reference now: a stalled machine can reap the pending session
+  // from the map before the bind below runs
+  const pending = tr._sessions.get('22'.repeat(8))
 
   // one dies — the other is mid-handshake, so the psm must survive
   tr._closeServerSession('11'.repeat(8))
@@ -317,7 +331,7 @@ test('psm rotation waits for pending sessions instead of breaking them', async (
 
   // the last pending session binds its stream — now the deferred rotation lands
   const { Duplex } = require('streamx')
-  tr._bindServerStream(tr._sessions.get('22'.repeat(8)), new Duplex(), 'l2cap')
+  tr._bindServerStream(pending, new Duplex(), 'l2cap')
   await until(() => tr._l2cap.psm !== null && tr._l2cap.psm !== psm)
   t.pass('listener rotated to a fresh psm once nothing was pending')
 })
@@ -329,7 +343,7 @@ test('pipe l2cap never links on a backend without channel support', async (t) =>
 
   await a.start()
   await b.start()
-  await new Promise((resolve) => setTimeout(resolve, 300))
+  await sleep(300)
 
   t.is(a.connections.size, 0, 'no psm to offer, sessions refuse')
   t.is(b.connections.size, 0)
@@ -375,7 +389,7 @@ test('pipe l2cap recovers once a hung radio heals', async (t) => {
 
   await a.start()
   await b.start()
-  await new Promise((resolve) => setTimeout(resolve, 300))
+  await sleep(300)
   t.is(a.connections.size, 0, 'no link while the open hangs')
 
   backend.setL2cap('ok')
@@ -472,17 +486,11 @@ test('pipe l2cap relinks after a radio power cycle', async (t) => {
   await b.start()
   await linked(a, b)
 
-  a.transport.server.state = 'poweredOff'
-  a.transport.server.emit('stateChange', 'poweredOff')
-  a.transport.central.state = 'poweredOff'
-  a.transport.central.emit('stateChange', 'poweredOff')
+  setRadioState(a, 'poweredOff')
   await until(() => a.connections.size === 0)
 
   const wedged = a.transport
-  a.transport.server.state = 'poweredOn'
-  a.transport.server.emit('stateChange', 'poweredOn')
-  a.transport.central.state = 'poweredOn'
-  a.transport.central.emit('stateChange', 'poweredOn')
+  setRadioState(a, 'poweredOn')
 
   await until(() => a.transport && a.transport !== wedged)
   const [ca] = await linked(a, b)
@@ -499,19 +507,13 @@ test('relinks after a radio power cycle', async (t) => {
   await linked(a, b)
 
   // radio dies: service, advertising, scans and links all invalidated
-  a.transport.server.state = 'poweredOff'
-  a.transport.server.emit('stateChange', 'poweredOff')
-  a.transport.central.state = 'poweredOff'
-  a.transport.central.emit('stateChange', 'poweredOff')
+  setRadioState(a, 'poweredOff')
   await until(() => a.connections.size === 0)
 
   // radio returns: the facade must abandon the wedged managers, build a
   // fresh transport and relink without an app-level toggle
   const wedged = a.transport
-  a.transport.server.state = 'poweredOn'
-  a.transport.server.emit('stateChange', 'poweredOn')
-  a.transport.central.state = 'poweredOn'
-  a.transport.central.emit('stateChange', 'poweredOn')
+  setRadioState(a, 'poweredOn')
 
   await until(() => a.transport && a.transport !== wedged)
   t.not(a.transport, wedged, 'transport rebuilt with fresh managers')
@@ -519,7 +521,9 @@ test('relinks after a radio power cycle', async (t) => {
   t.pass('relinked after power cycle')
 })
 
-test('a crowd meshes within its link caps', async (t) => {
+// Contention makes dial cooldowns escalate, so the mesh's tail latency can
+// pass the default deadline on a loaded machine — the assertions never flake.
+test('a crowd meshes within its link caps', { timeout: 300000 }, async (t) => {
   const backend = makeMockBluetooth()
   const swarms = []
   for (let i = 0; i < 8; i++) swarms.push(createSwarm(t, backend))
@@ -547,12 +551,12 @@ test('topics scope discovery and setTopic retunes live', async (t) => {
   await b.start()
 
   // different topics: discovery never crosses
-  await new Promise((resolve) => setTimeout(resolve, 300))
+  await sleep(300)
   t.is(a.connections.size, 0, 'no link across topics')
   t.is(b.connections.size, 0, 'no link across topics')
 
   // retune b onto a's topic: they link
-  await b.setTopic(require('./helpers').TOPIC)
+  await b.setTopic(TOPIC)
   await linked(a, b)
   t.is(a.connections.size, 1, 'linked after retune')
 
@@ -575,10 +579,10 @@ test('setTopic with the current topic is a no-op', async (t) => {
   }
 
   const before = a.transport.discoveryUUID
-  await a.setTopic(require('./helpers').TOPIC)
+  await a.setTopic(TOPIC)
   t.is(a.transport.discoveryUUID, before, 'uuid unchanged')
   t.is(suspends, 0, 'radio untouched')
-  t.alike(a.topic, require('./helpers').TOPIC, 'topic getter reflects the active topic')
+  t.alike(a.topic, TOPIC, 'topic getter reflects the active topic')
 })
 
 test('setTopic before start applies on the first start', async (t) => {
@@ -587,7 +591,7 @@ test('setTopic before start applies on the first start', async (t) => {
   const a = createSwarm(t, backend)
   const b = createSwarm(t, backend, { topic: OTHER })
 
-  await b.setTopic(require('./helpers').TOPIC)
+  await b.setTopic(TOPIC)
   await a.start()
   await b.start()
 
@@ -610,10 +614,10 @@ test('setTopic while stopped sticks across the next start', async (t) => {
   await b.start()
 
   await until(() => a.connections.size === 0)
-  await new Promise((resolve) => setTimeout(resolve, 300))
+  await sleep(300)
   t.is(a.connections.size, 0, 'stayed apart after restart on another topic')
 
-  await b.setTopic(require('./helpers').TOPIC)
+  await b.setTopic(TOPIC)
   await linked(a, b)
   t.pass('relinked after switching back live')
 })
@@ -634,6 +638,30 @@ test('topics partition a crowd and the hosted service stays fixed', async (t) =>
   t.is(a.transport.serviceUUID, c.transport.serviceUUID, 'hosted service uuid is shared')
   t.not(a.transport.discoveryUUID, c.transport.discoveryUUID, 'topics diverge in discovery')
 
-  await new Promise((resolve) => setTimeout(resolve, 300))
+  await sleep(300)
   t.is(c.connections.size, 0, 'other topic stays alone')
+})
+
+test('a stop racing a topic switch keeps the radio down', async (t) => {
+  const backend = makeMockBluetooth()
+  const OTHER = crypto.hash(b4a.from('race-topic'))
+  const a = createSwarm(t, backend)
+  const b = createSwarm(t, backend, { topic: OTHER })
+
+  await a.start()
+  await b.start()
+
+  // stop lands while setTopic is bouncing the radio — the stop must win
+  const race = a.setTopic(OTHER)
+  await a.stop()
+  await race
+
+  t.is(a.state, 'off', 'radio stayed down')
+  await sleep(300)
+  t.is(a.connections.size, 0, 'no links while stopped')
+
+  // the switched topic still applies on the next start
+  await a.start()
+  await linked(a, b)
+  t.pass('came back up on the new topic')
 })
