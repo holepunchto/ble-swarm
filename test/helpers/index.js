@@ -2,7 +2,7 @@ const b4a = require('b4a')
 const crypto = require('hypercore-crypto')
 
 const BluetoothSwarm = require('../..')
-const { makeMockBluetooth, makeStateBackend } = require('./radio')
+const { makeMockBluetooth, makeStateBackend } = require('../../mock.js')
 
 // Shared topic all test swarms tune to.
 const TOPIC = crypto.hash(b4a.from('keet-bluetooth-test'))
