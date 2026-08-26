@@ -5,7 +5,8 @@
   "main": "index.js",
   "files": [
     "index.js",
-    "lib"
+    "lib",
+    "mock.js"
   ],
   "scripts": {
     "test": "brittle-node test/all.js",
