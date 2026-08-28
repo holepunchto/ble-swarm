@@ -77,6 +77,29 @@ test('suspend halts io and resume restores; both preserve the start intent', asy
   t.pass('relinked after suspend/resume')
 })
 
+test('resume cycles the l2cap listener — a dead session must not pin the psm', async (t) => {
+  const backend = makeMockBluetooth()
+  const a = createSwarm(t, backend, { pipe: 'l2cap' })
+  const b = createSwarm(t, backend, { pipe: 'l2cap' })
+
+  await a.start()
+  await b.start()
+  await linked(a, b)
+
+  const before = a.transport._l2cap.psm
+  t.ok(before !== null, 'listener published while linked')
+
+  await a.suspend()
+  await a.resume()
+
+  await until(() => a.transport._l2cap.psm !== null)
+  const after = a.transport._l2cap.psm
+  t.not(after, before, 'resume republished the listener on a fresh psm')
+
+  await linked(a, b)
+  t.pass('relinked after suspend/resume on the new psm')
+})
+
 test('resume respects stop: a disabled swarm stays off', async (t) => {
   const backend = makeMockBluetooth()
   const a = createSwarm(t, backend)
