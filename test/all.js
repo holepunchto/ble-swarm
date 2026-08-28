@@ -100,6 +100,24 @@ test('resume cycles the l2cap listener — a dead session must not pin the psm',
   t.pass('relinked after suspend/resume on the new psm')
 })
 
+test('a closed l2cap channel leaves the central map', async (t) => {
+  const backend = makeMockBluetooth()
+  const a = createSwarm(t, backend, { pipe: 'l2cap' })
+  const b = createSwarm(t, backend, { pipe: 'l2cap' })
+
+  await a.start()
+  await b.start()
+  await linked(a, b)
+
+  const size = () =>
+    a.transport._l2cap._centralChannels.size + b.transport._l2cap._centralChannels.size
+  t.is(size(), 1, 'the dialing side holds its channel while linked')
+
+  await b.suspend()
+  await until(() => size() === 0)
+  t.pass('the map is empty once the channel closed')
+})
+
 test('resume respects stop: a disabled swarm stays off', async (t) => {
   const backend = makeMockBluetooth()
   const a = createSwarm(t, backend)
