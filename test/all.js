@@ -100,6 +100,27 @@ test('resume cycles the l2cap listener — a dead session must not pin the psm',
   t.pass('relinked after suspend/resume on the new psm')
 })
 
+test('a final refusal releases the physical link', async (t) => {
+  const backend = makeMockBluetooth()
+  const a = createSwarm(t, backend, { pipe: 'l2cap' })
+  const b = createSwarm(t, backend, { pipe: 'gatt' })
+
+  await a.start()
+  await b.start()
+
+  // mismatched pipes refuse in both directions, neither side may hold the link
+  const released = (bt) => {
+    for (const d of bt.transport._devices.values()) {
+      if (d.coolUntil > Date.now() && !d.peripheral) return true
+    }
+    return false
+  }
+  await until(() => released(a) && released(b))
+
+  t.is(a.transport.peers.size, 0, 'no link formed')
+  t.pass('both sides dropped the physical link on the final refusal')
+})
+
 test('a closed l2cap channel leaves the central map', async (t) => {
   const backend = makeMockBluetooth()
   const a = createSwarm(t, backend, { pipe: 'l2cap' })
