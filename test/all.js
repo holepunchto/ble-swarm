@@ -77,6 +77,68 @@ test('suspend halts io and resume restores; both preserve the start intent', asy
   t.pass('relinked after suspend/resume')
 })
 
+test('resume cycles the l2cap listener — a dead session must not pin the psm', async (t) => {
+  const backend = makeMockBluetooth()
+  const a = createSwarm(t, backend, { pipe: 'l2cap' })
+  const b = createSwarm(t, backend, { pipe: 'l2cap' })
+
+  await a.start()
+  await b.start()
+  await linked(a, b)
+
+  const before = a.transport._l2cap.psm
+  t.ok(before !== null, 'listener published while linked')
+
+  await a.suspend()
+  await a.resume()
+
+  await until(() => a.transport._l2cap.psm !== null)
+  const after = a.transport._l2cap.psm
+  t.not(after, before, 'resume republished the listener on a fresh psm')
+
+  await linked(a, b)
+  t.pass('relinked after suspend/resume on the new psm')
+})
+
+test('a final refusal releases the physical link', async (t) => {
+  const backend = makeMockBluetooth()
+  const a = createSwarm(t, backend, { pipe: 'l2cap' })
+  const b = createSwarm(t, backend, { pipe: 'gatt' })
+
+  await a.start()
+  await b.start()
+
+  // mismatched pipes refuse in both directions, neither side may hold the link
+  const released = (bt) => {
+    for (const d of bt.transport._devices.values()) {
+      if (d.coolUntil > Date.now() && !d.peripheral) return true
+    }
+    return false
+  }
+  await until(() => released(a) && released(b))
+
+  t.is(a.transport.peers.size, 0, 'no link formed')
+  t.pass('both sides dropped the physical link on the final refusal')
+})
+
+test('a closed l2cap channel leaves the central map', async (t) => {
+  const backend = makeMockBluetooth()
+  const a = createSwarm(t, backend, { pipe: 'l2cap' })
+  const b = createSwarm(t, backend, { pipe: 'l2cap' })
+
+  await a.start()
+  await b.start()
+  await linked(a, b)
+
+  const size = () =>
+    a.transport._l2cap._centralChannels.size + b.transport._l2cap._centralChannels.size
+  t.is(size(), 1, 'the dialing side holds its channel while linked')
+
+  await b.suspend()
+  await until(() => size() === 0)
+  t.pass('the map is empty once the channel closed')
+})
+
 test('resume respects stop: a disabled swarm stays off', async (t) => {
   const backend = makeMockBluetooth()
   const a = createSwarm(t, backend)
