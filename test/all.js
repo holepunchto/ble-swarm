@@ -739,3 +739,32 @@ test('a stop racing a topic switch keeps the radio down', async (t) => {
   await linked(a, b)
   t.pass('came back up on the new topic')
 })
+
+test('a scan stop never reaches the radio once the adapter is off', async (t) => {
+  const backend = makeMockBluetooth()
+  const a = createSwarm(t, backend)
+  const b = createSwarm(t, backend)
+
+  await a.start()
+  await b.start()
+  await until(() => a.transport._scanning && b.transport._scanning)
+
+  const calls = { a: 0, b: 0 }
+  for (const [name, bt] of Object.entries({ a, b })) {
+    const central = bt.transport.central
+    const stopScan = central.stopScan.bind(central)
+    central.stopScan = () => {
+      calls[name]++
+      stopScan()
+    }
+  }
+
+  // the adapter went off but the state event has not reached us yet
+  a.transport.central.state = 'poweredOff'
+
+  await a.suspend()
+  await b.suspend()
+
+  t.is(calls.a, 0, 'no stopScan while the adapter is off')
+  t.is(calls.b, 1, 'stopScan still runs while the adapter is on')
+})
