@@ -4,7 +4,18 @@ const { isMac } = require('which-runtime')
 
 const BLETransport = require('./lib/transport')
 
-const backend = require('#bluetooth')
+const backend = loadBackend()
+
+// A platform backend that cannot load is no backend: some OS versions reject
+// the native addon, and that must read as unsupported rather than take the
+// whole process down at require time.
+function loadBackend() {
+  try {
+    return require('#bluetooth')
+  } catch {
+    return null
+  }
+}
 
 /**
  * Bluetooth LE hyperswarm transport. Two orthogonal axes drive the radio:
