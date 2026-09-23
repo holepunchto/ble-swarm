@@ -215,6 +215,22 @@ test('missing backend reports unsupported and start is a safe no-op', async (t) 
   t.is(bt.connections.size, 0)
 })
 
+test('a backend that throws while loading reports unsupported', (t) => {
+  const { spawnSync } = require('child_process')
+  const path = require('path')
+
+  // the android condition resolves #bluetooth to the native addon, which cannot
+  // load here — the same shape as a device whose OS rejects the addon
+  const { status, stdout, stderr } = spawnSync(
+    process.execPath,
+    ['--conditions=android', '-p', "new (require('.'))().state"],
+    { cwd: path.join(__dirname, '..'), encoding: 'utf8' }
+  )
+
+  t.is(status, 0, stderr)
+  t.is(stdout.trim(), 'unsupported')
+})
+
 test('connections exposes the live noise streams', async (t) => {
   const backend = makeMockBluetooth()
   const a = createSwarm(t, backend)
