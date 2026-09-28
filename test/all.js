@@ -39,6 +39,50 @@ test('links two swarms, dedupes to one channel and exchanges data', async (t) =>
   t.alike(await once(ca, 'data'), b4a.from('right back'), 'b -> a')
 })
 
+for (const blind of ['smaller', 'bigger']) {
+  test(`links when only one side discovers the other (${blind} key blind)`, async (t) => {
+    const backend = makeMockBluetooth()
+    const [small, big] = [crypto.keyPair(), crypto.keyPair()].sort((x, y) =>
+      b4a.compare(x.publicKey, y.publicKey)
+    )
+    const a = createSwarm(t, backend, { keyPair: blind === 'smaller' ? small : big })
+    const b = createSwarm(t, backend, { keyPair: blind === 'smaller' ? big : small })
+    const create = a._createTransport.bind(a)
+    a._createTransport = () => {
+      const transport = create()
+      transport._onDiscover = () => {}
+      return transport
+    }
+
+    await a.start()
+    await b.start()
+
+    const [ca, cb] = await linked(a, b)
+    ca.write(b4a.from('one way'))
+    t.alike(await once(cb, 'data'), b4a.from('one way'), 'a -> b')
+  })
+}
+
+for (const n of [2, 4]) {
+  test(`${n} swarms that see each other link without a duplicate handover`, async (t) => {
+    const backend = makeMockBluetooth()
+    const swarms = []
+    let events = 0
+    for (let i = 0; i < n; i++) {
+      const s = createSwarm(t, backend)
+      s.on('connection', () => events++)
+      swarms.push(s)
+    }
+    for (const s of swarms) await s.start()
+
+    await until(() => swarms.every((s) => s.connections.size === n - 1))
+    await sleep(1000)
+    const live = swarms.reduce((sum, s) => sum + s.connections.size, 0)
+    t.is(live, n * (n - 1), 'full mesh')
+    t.is(events, live, 'one connection event per live link')
+  })
+}
+
 test('shouldConnect refusal prevents any link', async (t) => {
   const backend = makeMockBluetooth()
   const a = createSwarm(t, backend, { shouldConnect: () => false })
@@ -386,8 +430,6 @@ test('psm rotation waits for pending sessions instead of breaking them', async (
   const tr = a.transport
   await until(() => tr._l2cap.psm !== null)
   const psm = tr._l2cap.psm
-  // near-zero keys: smaller than any real key, so the initiator tie-break
-  // always accepts these OPENs
   const open = (id, fill) =>
     tr._onServerFrame(
       encodeFrame(TYPE_OPEN, id, encodeKeyPayload(b4a.alloc(32, fill), PIPE_L2CAP, null))
