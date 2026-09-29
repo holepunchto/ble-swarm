@@ -1,6 +1,6 @@
 const ReadyResource = require('ready-resource')
 const safetyCatch = require('safety-catch')
-const { isMac } = require('which-runtime')
+const { isMac, isAndroid, isIOS } = require('which-runtime')
 
 const BLETransport = require('./lib/transport')
 
@@ -97,21 +97,25 @@ module.exports = class BluetoothSwarm extends ReadyResource {
     if (this.transport && !this.transport.radioCycled) {
       this.transport.resume()
     } else {
-      this._abandon()
+      await this._abandon()
+      if (this.transport || !this.started || this.suspended || this.closing || this.closed) return
       this.transport = this._createTransport()
       await this.transport.ready()
     }
   }
 
+  // Retire the old managers before new ones exist: on Android the new server
+  // reuses the old handle, and on iOS removeAllServices may hit the new service.
   _abandon() {
     const old = this.transport
     if (!old) return
     this.transport = null
-    old
+    return old
       .suspend()
       .catch(safetyCatch)
       .then(() => {
-        if (isMac) old.destroyManagers()
+        if (isMac || isAndroid) old.destroyManagers()
+        else if (isIOS) old.removeServices() // iOS can't destroy managers
       })
   }
 
@@ -130,11 +134,12 @@ module.exports = class BluetoothSwarm extends ReadyResource {
     return transport
   }
 
-  // A radio power cycle wedges the surviving native managers — abandon them
-  // (never destroy: native double-free) and start over with fresh ones.
+  // A radio power cycle wedges the surviving native managers — retire them
+  // and start over with fresh ones.
   async _rebuild(old) {
     if (this.transport !== old || this.closing || this.closed) return
-    this._abandon()
+    await this._abandon()
+    if (this.transport || this.closing || this.closed) return
     if (this.started && !this.suspended) {
       this.transport = this._createTransport()
       await this.transport.ready().catch(safetyCatch)

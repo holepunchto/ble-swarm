@@ -11,6 +11,7 @@ const {
   linked,
   sleep,
   setRadioState,
+  powerCycle,
   makeMockBluetooth
 } = require('./helpers')
 
@@ -639,6 +640,20 @@ test('relinks after a radio power cycle', async (t) => {
   t.not(a.transport, wedged, 'transport rebuilt with fresh managers')
   await linked(a, b)
   t.pass('relinked after power cycle')
+})
+
+test('android: a power cycle destroys the old managers before building new ones', async (t) => {
+  const log = await powerCycle(t, 'android')
+  t.alike(log.slice(log.indexOf('destroy 0')), ['destroy 0', 'new 1', 'add 1'])
+})
+
+test('ios: a power cycle removes the old service before building new managers', async (t) => {
+  const log = await powerCycle(t, 'ios')
+  t.alike(
+    log,
+    ['remove 0', 'new 1', 'add 1'],
+    'old service never re-added, managers never destroyed'
+  )
 })
 
 // Contention makes dial cooldowns escalate, so the mesh's tail latency can

@@ -139,6 +139,9 @@ function makeMockBluetooth({ mtu: maxMtu = DEFAULT_MTU, l2cap = 'ok', coalesce =
       advertisers.delete(this)
     }
     destroy() {}
+    removeAllServices() {
+      this._service = null
+    }
     respondToRequest(req, _status, _data) {
       const p = req && req._peripheral
       if (p) queueMicrotask(() => p.emit('write', p._char || null))
