@@ -39,6 +39,7 @@
       "android": "bare-bluetooth",
       "darwin": "bare-bluetooth",
       "ios": "bare-bluetooth",
+      "linux": "bare-bluetooth",
       "default": "./lib/unsupported.js"
     }
   },
