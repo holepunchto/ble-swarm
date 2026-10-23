@@ -65,6 +65,17 @@ A Set of the live `NoiseSecretStream`s.
 
 A Map of the live links, keyed by remote public key hex string.
 
+#### `bt.discovered`
+
+An array of the devices advertising the topic that were heard lately, linked or not: `{ id, publicKey, linked, heard }`.
+
+- `id`: the peripheral id the scan reported (it rotates with the device's private address).
+- `publicKey`: the key the device claimed in its session handshake, otherwise `null`. A claimed key is not proof that the advertisement belongs to that peer.
+- `linked`: `true` while a link with that key is up.
+- `heard`: the index of the scan window it was last heard in.
+
+An entry is dropped after two complete scan windows in which it was not heard. A central gives our server no address, so the advertisement of a peer that dialed us is only matched to it once we dial that advertisement ourselves. While we don't (for example at `maxOutbound`), its entry stays `publicKey: null, linked: false`.
+
 #### `bt.state`
 
 One of `unsupported | unauthorized | off | starting | waiting | on`.
@@ -83,7 +94,7 @@ Emitted per deduped, opened link. `conn` is a Noise-encrypted Duplex stream.
 
 #### `bt.on('update', () => {})`
 
-Emitted on any state or peer-count change. Useful for user interfaces.
+Emitted on any state or peer-count change, and when `discovered` changes. Useful for user interfaces.
 
 #### `await bt.start()`
 

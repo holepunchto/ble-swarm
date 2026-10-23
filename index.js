@@ -71,6 +71,10 @@ module.exports = class BluetoothSwarm extends ReadyResource {
     return new Set(this.transport ? this.transport.peers.values() : [])
   }
 
+  get discovered() {
+    return this.transport ? this.transport.discovered : []
+  }
+
   get connecting() {
     return this.transport ? this.transport.connecting : 0
   }
